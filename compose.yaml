@@ -1,0 +1,58 @@
+services:
+  bitcoin:
+    image: bitcoin/bitcoin:28.0
+    command:
+      - -printtoconsole
+      - -regtest=1
+      - -server=1
+      - -listen=0
+      - -rpcbind=0.0.0.0
+      - -rpcallowip=0.0.0.0/0
+      - -fallbackfee=0.0002
+      - -txindex=1
+    volumes:
+      - bitcoin_data:/home/bitcoin/.bitcoin
+    networks:
+      - bitcoin_private
+    healthcheck:
+      # Check the node as the same unprivileged user that runs bitcoind.
+      # The default Docker healthcheck user may not see the RPC auth cookie.
+      test: ["CMD-SHELL", "gosu bitcoin bitcoin-cli -datadir=/home/bitcoin/.bitcoin -regtest getblockchaininfo >/dev/null"]
+      interval: 5s
+      timeout: 8s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+
+  app:
+    build: .
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      BITCOIN_RPC_URL: http://bitcoin:18443
+      BITCOIN_COOKIE: /bitcoin/regtest/.cookie
+      DATABASE_PATH: /appdata/sunupay.sqlite3
+      COOKIE_SECURE: "false"
+      # Optional: separate, external LNbits wallet (HTTPS + invoice-only key).
+      # If blank, the Lightning payment option remains disabled.
+      LNBITS_URL: ${LNBITS_URL:-}
+      LNBITS_INVOICE_KEY: ${LNBITS_INVOICE_KEY:-}
+    volumes:
+      - bitcoin_data:/bitcoin:ro
+      - app_data:/appdata
+    networks:
+      - bitcoin_private
+      - web
+    depends_on:
+      bitcoin:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  bitcoin_data:
+  app_data:
+
+networks:
+  bitcoin_private:
+    internal: true
+  web:
